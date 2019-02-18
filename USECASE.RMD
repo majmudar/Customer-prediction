@@ -1,0 +1,516 @@
+---
+title: "Customer Prediction for term deposit based on marketing campaign"
+author: "Jainik Majmudar"
+date: "February 07, 2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,message = FALSE, warning = FALSE)
+```
+
+```{r}
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(randomForest)
+library(pROC)
+library(DMwR)
+library(irr)
+library(ROCR)
+library(gmodels)
+library(nnet)
+library(kernlab)
+library(e1071)
+```
+
+```{r}
+setwd("/Users/jainikmajmudar/dataminingapplication/Project")
+bank <- read.table("bank-additional-full.csv",header=TRUE,sep=";")
+
+```
+
+#The Distribution of Age
+```{r}
+setwd("/Users/jainikmajmudar/dataminingapplication/Project")
+bank <- read.table("bank-additional-full.csv",header=TRUE,sep=";") 
+hist(bank$age)
+range(bank$age)
+
+```
+#This plot shows that the bank has contacted mostly in the age range of 20 to 60. Also we notice that maximum frequency age group is 30-35
+
+```{r}
+boxplot(bank$age ~ bank$y)
+```
+#The box plot shows the distribution of age compared to term deposit. The outliers are more for customers not taking term deposit when compared to customers taking. The whiskers of NO are almost equal which mean customers not taking term deposit is equally distributed. In Yes group the upper whisker is longer. This shows that customers taking term deposit is more in the mid age group. 
+```{r}
+boxplot(duration ~ y, data = bank)
+```
+# From the plot we infer that higher the call duration, the probability of customer accepting a term deposit is more.
+#Distribution of Education Variable
+```{r}
+barchart(bank$education)
+#barchart(bank$education ~ bank$y)
+```
+#From this plot we notice that the bank contacted mostly to customers having higher education. University degree frequency is highest and the high school frequency is second highest.
+
+```{r}
+counts <- table(bank$y, bank$education)
+barplot(counts, main="Education Vs Term Deposit",
+  xlab="Education Levels", col=c("darkblue","red"),
+ 	legend = rownames(counts))
+```
+#In all the education categories, the preference to term deposit is less. Compared to all education levels, customers having university degree opted more for term deposit. 
+
+```{r}
+barchart(bank$y)
+```
+#The Plot shows that most customers didn't prefer the term deposit.
+```{r}
+barchart(bank$loan)
+counts <- table(bank$y, bank$loan)
+barplot(counts, main="Loan Taken Vs Term Deposit",
+  xlab="Loan", col=c("darkblue","red"),
+ 	legend = rownames(counts))
+```
+#The customer having no loan prefered the term deposit when compared to customers having loan.
+```{r}
+barchart(bank$marital)
+counts <- table(bank$y, bank$marital)
+barplot(counts, main="Marital Status Vs Term Deposit",
+  xlab="Marital Levels", col=c("darkblue","red"),
+ 	legend = rownames(counts))
+```
+#Here we see that married and single customers prefered term deposit more than divorced.
+```{r}
+barchart(bank$housing)
+counts <- table(bank$y, bank$housing)
+barplot(counts, main="House Loan Vs Term Deposit",
+  xlab="House Loan", col=c("darkblue","red"),
+ 	legend = rownames(counts))
+```
+#The bank contacted both the customers having house-house loans and non-house loans. Both categories preferred the term deposit almost equally.
+```{r}
+hist(bank$duration)
+plot(bank$previous, col=bank$y)
+```
+#Here we notice that frequency for duration having 0 is more which indicates that bank mostly preferred new customer than existing.The scatter plot further classifies this with term deposit for new and existing customers.
+```{r}
+barchart(bank$contact)
+```
+
+#Checking the incorrect values for respective variables.
+```{r}
+sum(bank$pdays > 999)
+sum(bank$pdays < 0)
+sum(bank$marital == "widowed")
+
+
+```
+
+
+```{r}
+barchart(bank$job)
+counts <- table(bank$y, bank$job)
+barplot(counts, main="Job Vs Term Deposit",
+  xlab="JOB", col=c("darkblue","red"),
+ 	legend = rownames(counts))
+```
+#From the graph we notice that admin, technician preferred term deposit more than other profession
+#we are building a predictive model and duration is not know before the call is made.This can be used as a benchmark criteria.So we are removing the duration variable 
+```{r}
+bank <- bank[,-11]
+```
+#Transformation of variables
+```{r}
+#cellular is defines as one and telephone is defined as 0 
+bank$contact <- ifelse(bank$contact == "cellular", 1,0)
+```
+
+## there are 39673 customer who are new and 1515 customers who are previous. This can be found out from value 999 and the rest..999 which indicates the customer was not previously contacted . Classifying the new customer as 0 and 1 for previous customers
+```{r}
+bank$pdays <- ifelse(bank$pdays == 999,0,1)
+```
+
+##Binning the levels of jobs to High-Pay, low-pay and No -pay jobs. 
+```{r}
+levels(bank$job) <- c("admin.","admin.","entrepreneur", "housemaid", "admin.","housemaid","entrepreneur",
+                      "admin.","housemaid","entrepreneur","housemaid","housemaid")
+levels(bank$job)[levels(bank$job) == "admin."] <- "High_pay_job"
+levels(bank$job)[levels(bank$job) == "entrepreneur"] <- "Self_pay_job"
+levels(bank$job)[levels(bank$job) == "housemaid"] <- "No_pay_job"
+
+```
+
+##Changing the levels of education
+```{r}
+levels(bank$education) <- c("basic.4y","basic.4y","high.school","high.school","basic.4y","professional",
+                            "professional","high.school")
+levels(bank$education)[levels(bank$education) == "basic.4y"] <- "Basic_Education"
+levels(bank$education)[levels(bank$education) == "high.school"] <- "High_school"
+levels(bank$education)[levels(bank$education) == "professional"] <- "Univ&Pro"
+```
+#Changing the levels of months into Quaters
+```{r}
+levels(bank$month) <- c("Q2", "Q3","Q4","Q3","Q2","Q1","Q2","Q4","Q4","Q3")
+```
+#Changing the class of contact and Pdays
+```{r}
+bank$contact <- as.factor(bank$contact)
+bank$pdays <- as.factor(bank$pdays)
+
+```
+#Term deposit
+```{r}
+bank_train$y <- ifelse(bank_train$y == "yes", 1,0)
+bank_train$y <- as.factor(bank_train$y)
+levels(bank_val_labels)[1] <- 0
+levels(bank_val_labels)[2] <- 1
+
+```
+
+
+#Spliting the variables
+```{r}
+set.seed(123)
+bank_split <- createDataPartition(bank$y, p = 0.60, list = FALSE)
+bank_train <- bank[bank_split,]
+bank_test_val <- bank[-bank_split,]
+bank_split2 <- createDataPartition(bank_test_val$y, p = 0.50, 
+                                   list = FALSE)
+bank_val <- bank_test_val[bank_split2,]
+bank_test <- bank_test_val[-bank_split2,]
+#Taking the labels out 
+bank_val_labels <- bank_val[,20]
+bank_val_n <- bank_val[,-20]
+bank_test_labels <- bank_test[,20]
+bank_test_n <- bank_test[,-20]
+```
+
+#Classification Tree
+#Since Decision trees are not affected by the transformations we are proceeding without any normalization
+#growing the full grown tree..
+```{r}
+bank_decision_tree <- rpart(y~., data = bank_train, method = "class")
+prp(bank_decision_tree, type = 1, extra = 1, split.font = 2, varlen = -10, box.palette = "Greens", round = 0, 
+    leaf.round = 10)
+printcp(bank_decision_tree)
+
+```
+#applying to validation data set
+```{r}
+predictdecision <- predict(bank_decision_tree, bank_val_n, type = "class")
+confusionMatrix(predictdecision,bank_val_labels, positive = "1")
+auc_full_tree <- roc(bank_val_labels, as.numeric(predictdecision))
+auc_full_tree
+```
+#AUC is 58.21% 
+#we got 89 percent accuracy with decison trees..But lets apply random forest to see if we can further 
+#increase our accuracy with random forest
+
+#Random Forest Classification
+```{r}
+bank_random_tree <- randomForest(y~., data = bank_train, mtry = 5, ntree = 500,nodsize = 5, 
+                                 importance = TRUE)
+predict_random <- predict(bank_random_tree, bank_val_n, type = "class")
+confusionMatrix(predict_random,bank_val_labels,positive = "1")
+auc_random <- roc(bank_val_labels, as.numeric(predict_random))
+auc_random
+```
+### Accuracy  for decision tree is 89% 
+##AUC is 63.3 percent. AUC has increased from 58 to 63%. 
+## From the above confusion matrix we can see that the classes were better classifed than full decision tree. Also we see the FN value to decrease and false positive value to increase. There is an increment in the sensitivity. However the accuracy remains same. Lossing a potential customer incurs more loss to organization than incorrectly classifying a non potential customers. The random forest reduces the loss by decreasing the False negative value.
+
+##Apply bagging ensembler
+#Using bagging with caret package
+```{r}
+trainctrl <- trainControl(method = "cv", number = 10)
+bank_bag <- train(y~.,data = bank_train, method = "treebag", trControl = trainctrl)
+predict_bag <- predict(bank_bag, bank_val_n)
+confusionMatrix(predict_bag,bank_val_labels, positive = "1")
+auc_bag <- roc(bank_val_labels, as.numeric(predict_bag))
+auc_bag
+```
+# AUC is 63% and remains the same. 
+# Accurancy is 88%
+#We see that bagging performed better than random forest with increment of sensitivity and decrement of false Negative.
+
+#Since this is an oversampled data with 1:9 ratio of preferred variable, we have used oversampled concept with SMOTE package to see any difference.
+```{r}
+prop.table(table(bank_train$y))
+bank_smote <- SMOTE(y~., data = bank_train,perc.over = 100, perc.under = 200)
+prop.table(table(bank_smote$y))
+trainctrl <- trainControl(method = "cv", number = 10)
+bank_smote_tree <- train(y~.,data = bank_smote, method = "treebag", trControl = trainctrl)
+predict_smote <- predict(bank_smote_tree, bank_val_n)
+confusionMatrix(predict_smote,bank_val_labels,positive = "1")
+auc_smote <- roc(bank_val_labels, as.numeric(predict_smote))
+auc_smote
+
+```
+#AUC is 71%
+#Accuracy is 81%. But we see there is good improvement in sensitivity and false negative. Since our class of interest is and the oversampled concept gives us better results when compared to previous model, we finalize our decision tree as bank_smote
+
+###Logistic Regression 
+#Logistic regression for all variables.
+```{r}
+bank_logistic <- glm(y ~., data = bank_train, family = "binomial")
+summary(bank_logistic)
+```
+# the above results shows the significant and non-sinificant variables. 
+#applying the model with significant variables obtained in bank_logistic
+
+```{r}
+bank_logistic_sig <- glm(y~ job + default + contact + month +
+                           campaign + pdays + poutcome + emp.var.rate + 
+                           cons.conf.idx + cons.price.idx, data = bank_train, family = "binomial")
+summary(bank_logistic_sig)
+predict_sig <- round(predict(bank_logistic_sig, bank_val_n, type = "response"))
+confusionMatrix(as.factor(predict_sig),bank_val_labels,positive = "1")
+auc_sig <- roc(bank_val_labels, predict_sig)
+auc_sig
+```
+#From the summary we see that the residual deviance has reduced to 13590 with the cost of degree of freedom.
+#The confusion matrix above shows that sensitivity is just 21% and false negative value is 765 which is high.
+#AUC is 60%
+#However this deviance is also large. Applying backstep regression method to find the desired variables
+
+```{r}
+MASS::stepAIC(bank_logistic, direction = "backward")
+
+#Applying the formula in GLM function
+bank_logistic_2 <- glm(y ~ job + education + default + contact + month + 
+                         day_of_week + campaign + pdays + poutcome + emp.var.rate + 
+                         cons.price.idx + cons.conf.idx + nr.employed, data = bank_train, family = "binomial" )
+
+summary(bank_logistic_2)
+predict_logistic_step <- round(predict(bank_logistic_2, bank_val_n, type = "response"))
+confusionMatrix(as.factor(predict_logistic_step),bank_val_labels,positive = "1")
+auc_step <- roc(bank_val_labels, predict_logistic_step)
+auc_step
+```
+#Accuracy 89% and AUC 60%
+#the above model too gives the same deviance as bank_logistic..Also the sensitivity and false negative have not improved. Applying cross-validation to check any better model 
+#using the cross validation in logistic regression.
+```{r}
+train_control <- trainControl(method="cv", number=10)
+bank_logistic_3<- train(y~., data=bank_train, trControl=train_control, method="glm", family=binomial())
+summary(bank_logistic_3)
+predict_logistic_2 <- predict(bank_logistic_3, bank_val_n)
+confusionMatrix(bank_val_labels, predict_logistic_2,positive = "1")
+auc_logistic_cv <- roc(bank_val_labels, as.numeric(predict_logistic_2) )
+auc_logistic_cv
+
+```
+#Accuracy 89%
+#AUC 60% and no improvement in sensitivity and false negative.
+##Applying Smote function 
+
+```{r}
+trainctrl <- trainControl(method = "cv", number = 10)
+bank_smote_logistic <- train(y~.,data = bank_smote, method = "glm", trControl = trainctrl, family = binomial())
+predict_smote_logistic <- predict(bank_smote_logistic, bank_val_n)
+confusionMatrix(predict_smote_logistic,bank_val_labels,positive = "1")
+auc_smote_logistic <- roc(bank_val_labels, as.numeric(predict_smote_logistic))
+auc_smote_logistic
+
+```
+#Accuracy  85%
+#AUC 71%. The above confusion matrix says that sentivity and true negative has improved has improved. But slightly lesser than decision tree smote.
+
+
+# Getting the indexes of factor columns from bank data set, to convert them into numeric for creating 
+# a correlation plot
+```{r}
+bank_dup <- bank
+factors_index <- which(sapply(bank_dup, is.factor))
+factors_index
+```
+# Converting factor columns to numeric
+```{r}
+bank_dup[,factors_index] <- lapply(factors_index, function(fac) {as.numeric(bank_dup[,fac])})
+str(bank_dup)
+```
+### Model building and evaluation.
+
+# Normalizing the numeric features in bank to reduce the bias towards features with comparitively high numeric values
+```{r}
+normalize <- function(x) {
+  return((x - min(x)) / (max(x) - min(x)))
+}
+factors_index <- which(sapply(bank, is.factor))
+factors_index
+bank_n <- as.data.frame(lapply(bank[ ,-factors_index], normalize))
+names(bank_n)
+bank[names(bank_n)] <- bank_n[names(bank_n)]
+str(bank)
+```
+
+#Spliting the variables
+```{r}
+set.seed(123)
+bank_split <- createDataPartition(bank$y, p = 0.60, list = FALSE)
+bank_train <- bank[bank_split,]
+bank_test_val <- bank[-bank_split,]
+bank_split2 <- createDataPartition(bank_test_val$y, p = 0.50, 
+                                   list = FALSE)
+bank_val <- bank_test_val[bank_split2,]
+bank_test <- bank_test_val[-bank_split2,]
+#Taking the labels out 
+bank_val_labels <- bank_val[,20]
+bank_val_n <- bank_val[,-20]
+bank_test_labels <- bank_test[,20]
+bank_test_n <- bank_test[,-20]
+```
+
+# The target variable y is uniformly distributed among both train and test sets
+```{r}
+prop.table(table(bank_train$y))
+```
+
+
+#Term deposit
+```{r}
+bank_train$y <- ifelse(bank_train$y == "yes", 1,0)
+bank_train$y <- as.factor(bank_train$y)
+levels(bank_val_labels)[1] <- 0
+levels(bank_val_labels)[2] <- 1
+
+```
+
+### Neural Networks ###
+# creating a neural network model using training set
+```{r}
+# creating a neural network model using training set
+nnet_model <- nnet(y~age + job + marital + education + 
+                       default + housing + loan + contact + 
+                       month + day_of_week + campaign + 
+                       pdays + previous + poutcome + emp.var.rate + 
+                       cons.price.idx + cons.conf.idx + euribor3m + 
+                       nr.employed, data=bank_train, size=3, decay=0.1)
+```
+# The model has 32 input nodes, 3 hidden nodes and 1 output node
+```{r}
+nnet_model$n
+```
+# applying the neural network model to validation dataset  set
+```{r}
+nnet_pred <- predict(nnet_model, bank_val_n, type="class")
+str(nnet_pred)
+```
+# The accuracy of the model is 89% 
+# The senitivity and false negative values are bit low.
+```{r}
+CrossTable(nnet_pred,bank_val_labels)
+confusionMatrix(nnet_pred,bank_val_labels, positive = "1")
+```
+# ROC curve of the predicted and true values indicating the relationship between true positive rate and
+# false positive rate. The area under the curve for the plot is 0.7386739
+```{r}
+nnet_pred_fac <- as.factor(nnet_pred) 
+pred_nn <- prediction(predictions = as.numeric(nnet_pred_fac), labels = as.numeric(bank_val_labels))
+perf_nn <- performance(pred_nn,measure = "tpr", x.measure = "fpr")
+plot(perf_nn, main="neural net")
+perf.auc_nn <- performance(pred_nn, measure = "auc")
+unlist(perf.auc_nn@y.values)
+```
+# Lets try to improve the model peformance by using the function pcaNNet which applies principal component analysis to
+# the variables before building a neural network model. And also size of the hidden layers were reduced to 2 for the model to generalize more on future data and to avoid overfitting
+```{r}
+nnet_model_2 <- pcaNNet(y~age + job + marital + education + 
+            default + housing + loan + contact + 
+            month + day_of_week + campaign + 
+            pdays + previous + poutcome + emp.var.rate + 
+            cons.price.idx + cons.conf.idx + euribor3m + 
+            nr.employed, data=bank_train, size=2, decay=0.1)
+```
+# predicting the target variable of the training set using the model
+```{r}
+nnet_pred_2 <- predict(nnet_model_2, bank_val_n, type="class")
+str(nnet_pred_2)
+```
+# The sensitivity of the model fairly increased but it is still less efficient compared to the decision tree model
+```{r}
+confusionMatrix(nnet_pred_2,bank_val_labels, positive = "1")
+```
+# we can see an improvement in sensitivity and false negative.
+### Support Vector Machine ###
+# creating a support vector model using training set
+```{r}
+svm_model <- ksvm(y~., data=bank_train, kernel = "rbfdot")
+```
+# applying the support vector model to test set
+```{r}
+svm_pred <- predict(svm_model, bank_val_n)
+str(svm_pred)
+```
+# The accuracy of the model is 89%. The sensitivity ad false negative are low.
+```{r}
+CrossTable(svm_pred, bank_val_labels)
+confusionMatrix(svm_pred,bank_val_labels, positive = "1")
+```
+# ROC curve of the predicted and true values indicating the relationship between true positive rate and false positive rate.
+
+```{r}
+pred_svm <- prediction(predictions = as.numeric(svm_pred), labels = as.numeric(bank_val_labels))
+perf_svm <- performance(pred_svm,measure = "tpr", x.measure = "fpr")
+plot(perf_svm, main="SVM")
+```
+### naive bayes model ###
+# creating a naive bayes model using training set
+```{r}
+bayes_model <- naiveBayes(bank_train[,-20], bank_train$y, laplace = 1)
+```
+# applying the naive bayes model to test set
+```{r}
+bayes_pred <- predict(bayes_model, bank_val_n)
+```
+# The accuracy of the model is 80.36% But there is a good classification of clases. The True positive is 528 and false negative is 400 which is good compared to other model.
+
+```{r}
+CrossTable(bayes_pred, bank_val_labels)
+kappa2(data.frame(bayes_pred, bank_val_labels))$value
+confusionMatrix(bayes_pred,bank_val_labels, positive = "1")
+```
+# ROC curve of the predicted and true values indicating the relationship between true positive rate and false positive rate.
+
+```{r}
+pred_nb <- prediction(predictions = as.numeric(bayes_pred), labels = as.numeric(bank_val_labels))
+perf_nb <- performance(pred_nb,measure = "tpr", x.measure = "fpr")
+plot(perf_nb, main="Naive Bayes")
+perf.auc <- performance(pred_nb, measure = "auc")
+unlist(perf.auc@y.values)
+```
+
+# Based on the sensitivity and false negative value, we choose our final model as Naive based model. 
+#Applying naive bayes on test data.
+
+```{r}
+test_naive <- predict(bayes_model, bank_test)
+```
+
+```{r}
+levels(bank_test_labels)[1] <- 0
+levels(bank_test_labels)[2] <- 1
+```
+
+
+```{r}
+CrossTable(test_naive, bank_test_labels)
+kappa2(data.frame(test_naive, bank_test_labels))$value
+confusionMatrix(test_naive,bank_test_labels, positive = "1")
+```
+
+# From the confusion matrix above we notice that accuracy is 81% . Also the false positive value is 370 and true positive values are 558 we have used 20% for validation and 20% of test data. we got a better results for test data when compared to validation data interms o true positve and false negative.
+
+
+
+
+
+
+
+
+
+
+
